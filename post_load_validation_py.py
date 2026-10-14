@@ -14,6 +14,16 @@ dbutils.widgets.text("min_row_count", "1")
 table_names = dbutils.widgets.get("table_names")
 min_row_count = int(dbutils.widgets.get("min_row_count"))
 
+dbutils.widgets.text("segment_column", "customer_segment")
+dbutils.widgets.text("allowed_segments", "UKC,UK-ICB")
+
+segment_column = dbutils.widgets.get("segment_column").strip()
+allowed_segments = [
+    value.strip()
+    for value in dbutils.widgets.get("allowed_segments").split(",")
+    if value.strip()
+]
+
 # COMMAND ----------
 
 
@@ -57,6 +67,51 @@ def print_header(message):
 
 def print_separator():
     print("-" * 80)
+
+# COMMAND ----------
+
+# =================================================================================
+# PYDEEQU SEGMENT CHECK
+# =================================================================================
+
+import os
+
+os.environ["SPARK_VERSION"] = spark.version[:3]
+
+from pydeequ.checks import Check, CheckLevel
+from pydeequ.verification import VerificationSuite, VerificationResult
+
+
+def check_allowed_segments(df, column, allowed):
+    """Return a list of failure messages. Empty list means the check passed."""
+
+    if column not in df.columns:
+        return [f"column '{column}' not found"]
+
+    check = (
+        Check(spark, CheckLevel.Error, "allowed segment check")
+        .isComplete(column)
+        .isContainedIn(column, allowed)
+    )
+
+    result = (
+        VerificationSuite(spark)
+        .onData(df)
+        .addCheck(check)
+        .run()
+    )
+
+    rows = (
+        VerificationResult
+        .checkResultsAsDataFrame(spark, result)
+        .collect()
+    )
+
+    return [
+        f"{r['constraint']} : {r['constraint_message']}"
+        for r in rows
+        if r["constraint_status"] != "Success"
+    ]
 
 # COMMAND ----------
 
@@ -178,6 +233,57 @@ for idx, table_name in enumerate(tables, start=1):
                     )
                 }
             )
+
+        # -------------------------------------------------------------------------
+        # ALLOWED SEGMENT CHECK
+        # -------------------------------------------------------------------------
+
+        if segment_column and allowed_segments:
+
+            log(
+                f"Checking {segment_column} "
+                f"in {allowed_segments}..."
+            )
+
+            segment_failures = check_allowed_segments(
+                spark.table(table_name),
+                segment_column,
+                allowed_segments
+            )
+
+            if segment_failures:
+
+                log(
+                    "Segment check failed",
+                    "ERROR"
+                )
+
+                for msg in segment_failures:
+                    validation_errors.append(
+                        f"{table_name} : {msg}"
+                    )
+
+                validation_summary.append(
+                    {
+                        "table": table_name,
+                        "status": "FAILED",
+                        "reason": "INVALID SEGMENT VALUES"
+                    }
+                )
+
+            else:
+
+                log("Segment check passed")
+
+                validation_summary.append(
+                    {
+                        "table": table_name,
+                        "status": "PASSED",
+                        "reason": (
+                            f"SEGMENT IN {allowed_segments}"
+                        )
+                    }
+                )
 
     except Exception as ex:
 
