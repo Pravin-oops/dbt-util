@@ -49,7 +49,7 @@
     {% set recon_sql %}
 
         merge into
-            `default_cib_analytics_4460044220833463`.`cds_write`.`batch_recon_backup_snapshot_change`
+            `default_cib-analytics_4460044220833463`.`cds_write`.`batch_recon_backup_snapshot_change`
             as target
 
         using
@@ -117,7 +117,7 @@
                     as last_modified_by
 
             from
-                `default_cib_analytics_4460044220833463`.`cds_write`.`batch_control_table_backup_snapshot_change`
+                `default_cib-analytics_4460044220833463`.`cds_write`.`batch_control_table_backup_snapshot_change`
                 as control
 
             where lower(control.model_name) =
